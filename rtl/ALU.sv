@@ -10,8 +10,8 @@ module ALU( ALU_Input1,ALU_Input2,ALU_Output,Signal);
   begin
     
     case(Signal)
-    2'b00: ALU_Output = ALU_Input1 + ALU_Input1; 
-    2'b01: ALU_Output = ALU_Input1 + ALU_Input1;
+    2'b00: ALU_Output = ALU_Input1 + ALU_Input2; 
+    2'b01: ALU_Output = ALU_Input1 - ALU_Input2;
     default: ALU_Output = 64'b0;
     endcase 
  
