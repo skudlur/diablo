@@ -1,4 +1,4 @@
-module Instruction_Memory #(parameter N=6,M=64)
+module Instruction_Memory #(parameter N=6,M=32)
 (input logic clk,
 input logic we,
 input logic[N-1:0]adr,
