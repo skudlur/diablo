@@ -1,5 +1,5 @@
 /*
-*	Arithmetic Logical Unit for diablo
+*	Arithmetic Logical Unit for Diablo     
 */
 
 module alu (
