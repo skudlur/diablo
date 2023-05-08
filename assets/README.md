@@ -1,0 +1,1 @@
+Assets in this directory
