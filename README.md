@@ -1,4 +1,9 @@
 # diablo
+
+<p align="center">
+  <img src="./assets/diablo2-02.png" width="500" height="500" title="diablo">
+</p>
+
 diablo is a Out-Of-Order 64 bit RISC-V processor.
 
 ## diablo single-cycle 
