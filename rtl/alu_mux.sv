@@ -1,4 +1,4 @@
-module alu_mux #parameter(XLEN=64) ( 
+module alu_mux #(parameter XLEN=64) ( 
 	input logic [XLEN-1:0] reg2,
 	input logic [XLEN-1:0] imm,
 	input logic control,

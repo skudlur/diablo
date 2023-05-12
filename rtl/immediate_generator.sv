@@ -1,4 +1,4 @@
-module immediate_generator #parameter(XLEN=64) (
+module immediate_generator #(parameter XLEN=64) (
 	input logic [31:0]instruction,
 	output logic [XLEN-1:0]immout
 );

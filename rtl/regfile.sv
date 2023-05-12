@@ -2,10 +2,8 @@
 *	Integer Register file module for diablo
 */
 
-
-module int_regfile #parameter(XLEN=64) ( input logic clk,
-		       input logic rst,
-		       
+module int_regfile #(parameter XLEN=64) ( input logic clk,
+               input logic rst,
 		       input logic [4:0] raddr_in1,
 		       input logic [4:0] raddr_in2,
 		       input logic [4:0] waddr_in,
@@ -13,8 +11,8 @@ module int_regfile #parameter(XLEN=64) ( input logic clk,
 		       input logic wen_in,
 
 		       output logic [XLEN-1:0] rdata_out1,
-		       output logic [XLEN-1:0] rdata_out2,
-);
+		       output logic [XLEN-1:0] rdata_out2
+		       );
 	reg [XLEN-1:0] x0 = 0, x1, x2, x3, x4, x5, x6, x7, x8, x9;
 	reg [XLEN-1:0] x10, x11, x12, x13, x14, x15, x16, x17, x18, x19;
 	reg [XLEN-1:0] x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30, x31;
