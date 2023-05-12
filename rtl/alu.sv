@@ -2,7 +2,7 @@
 *	Arithmetic Logical Unit for Diablo     
 */
 
-module alu #parameter(XLEN=64) ( 
+module alu #(parameter XLEN = 64)( 
   	input logic [XLEN-1:0] alu_input1, alu_input2,
   	input logic [1:0] signal,                       //More to be added  
   	output logic [XLEN-1:0] alu_output
