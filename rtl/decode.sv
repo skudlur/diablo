@@ -1,4 +1,4 @@
-module riscv_decode (
+module decode (
   input		logic[31:0] instruction,
   output	logic[4:0]	rs1,
   output	logic[4:0]  rs2,

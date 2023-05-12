@@ -10,6 +10,6 @@ logic[M-1:0]mem[2**N-1:0];
 
 always_ff@(posedge clk) begin
     if(we) mem[adr] <= din;    
-    assign dout = mem[adr];
+    dout <= mem[adr];
 end
 endmodule
