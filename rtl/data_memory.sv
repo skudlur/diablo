@@ -8,8 +8,15 @@ module data_memory #(parameter N=6,M=64) (
 
 logic[M-1:0]mem[2**N-1:0];
 
-always_ff@(posedge clk) begin
-    if(we) mem[adr] <= din;
-    assign dout = mem[adr];
-end
+always_ff@(posedge clk) 
+    begin
+        if(we)
+        begin 
+        mem[adr] <= din;
+        end
+        else
+        begin
+        dout <= mem[adr];
+        end
+    end
 endmodule
