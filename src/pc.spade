@@ -1,0 +1,4 @@
+pub entity pc_reg(clk: clock, rst: bool, next_pc: uint<64>) -> uint<64> {
+    reg(clk) pc reset(rst: 0) = next_pc;
+    pc
+}

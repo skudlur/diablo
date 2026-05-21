@@ -1,3 +1,4 @@
 *.lock
 *.swp
 .surfer/
+sim/obj_dir

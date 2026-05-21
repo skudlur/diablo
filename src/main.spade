@@ -1,0 +1,10 @@
+mod isa;
+mod regfile;
+mod alu;
+mod cpu;
+mod decoder;
+mod pc;
+
+entity main(clk: clock, rst: bool) -> int<64> {
+    inst(3) cpu::cpu(clk, rst)
+}

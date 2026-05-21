@@ -1,0 +1,87 @@
+use diablo::isa::Opcode;
+use diablo::isa::Instruction;
+use diablo::alu::AluOp;
+
+pub struct DecodeResult {
+    opcode: Opcode,
+    alu_op: AluOp,
+    imm: int<64>,
+    use_imm: bool,
+    write_reg: bool,
+}
+
+pub entity decoder(instr: Instruction) -> DecodeResult {
+    // Opcode mapping (lower 7 bits of instruction)
+    // RV64I base opcodes:
+    // 0110011 (51) -> OP (Register-Register)
+    // 0010011 (19) -> OP-IMM (Register-Immediate)
+    // 0000011 (3)  -> LOAD
+    // 0100011 (35) -> STORE
+    // 1100011 (99) -> BRANCH
+    let opcode = match instr.opcode {
+        51 => Opcode::Op,
+        19 => Opcode::OpImm,
+        3  => Opcode::Load,
+        35 => Opcode::Store,
+        99 => Opcode::Branch,
+        // _ => Opcode::Unknown
+        _  => Opcode::Unknown // Using Unknown for now
+    };
+
+    // ALU Operation mapping based on opcode, funct3, and funct7
+    let alu_op = match opcode {
+        Opcode::Op => {
+            match (instr.funct7, instr.funct3) {
+                (0, 0) => AluOp::Add,
+                (32, 0) => AluOp::Sub,
+                (0, 1) => AluOp::Sll,
+                (0, 2) => AluOp::Slt,
+                (0, 3) => AluOp::Sltu,
+                (0, 4) => AluOp::Xor,
+                (0, 5) => AluOp::Srl,
+                (32, 5) => AluOp::Sra,
+                (0, 6) => AluOp::Or,
+                (0, 7) => AluOp::And,
+                _ => AluOp::Add
+            }
+        },
+        Opcode::OpImm => {
+            match instr.funct3 {
+                0 => AluOp::Add, // ADDI
+                2 => AluOp::Slt, // SLTI
+                3 => AluOp::Sltu, // SLTIU
+                4 => AluOp::Xor, // XORI
+                6 => AluOp::Or,  // ORI
+                7 => AluOp::And, // ANDI
+                _ => AluOp::Add
+            }
+        },
+        _ => AluOp::Add
+    };
+
+    // Immediate generation (Sign extended to 64 bits)
+    // Placeholder for immediate:
+    let imm: int<64> = 0; // TODO: properly sign-extend immediates in Spade
+
+    let use_imm = match opcode {
+        Opcode::OpImm => true,
+        Opcode::Load => true,
+        Opcode::Store => true,
+        _ => false
+    };
+
+    let write_reg = match opcode {
+        Opcode::Op => true,
+        Opcode::OpImm => true,
+        Opcode::Load => true,
+        _ => false
+    };
+
+    DecodeResult$(
+        opcode: opcode,
+        alu_op: alu_op,
+        imm: imm,
+        use_imm: use_imm,
+        write_reg: write_reg
+    )
+}

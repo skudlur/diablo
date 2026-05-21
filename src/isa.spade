@@ -1,0 +1,20 @@
+pub struct Instruction {
+    opcode: uint<7>,
+    rd: uint<5>,
+    funct3: uint<3>,
+    rs1: uint<5>,
+    rs2: uint<5>,
+    funct7: uint<7>,
+}
+
+pub enum Opcode {
+    Load,
+    Store,
+    Branch,
+    Jalr,
+    Jal,
+    OpImm,
+    Op,
+    System,
+    Unknown
+}
