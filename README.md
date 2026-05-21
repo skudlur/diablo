@@ -4,44 +4,18 @@
   <img src="./assets/diablo2-02.png" width="500" height="500" title="diablo">
 </p>
 
-diablo is a Out-Of-Order 64 bit RISC-V processor.
+diablo is an Out-Of-Order 64-bit RISC-V processor. 
 
-## diablo single-cycle 
+> [!NOTE]
+> **Project Status:** This project is currently undergoing a complete reimplementation from SystemVerilog to **Spade HDL** to leverage modern build tools (Cargo/swim) and first-class hardware pipelines.
 
-```
-                                                                                                                                                                                                                         
-                                                               diablo single-cycle version                                                                                                                               
-                                                                                                                                                                                                                         
-                                                                                                                                                                                                                         
-                                                          -------------------------------------------------------------------------------------------|                                                                   
-----------------------------------------------------------|----------------------------------------------------------                                |                                                                   
-|                                                         |                                                         |                                |                                                                   
-|                                                         | +------------------+                                    |                                |                                                                   
-|                                                         |-|                  |                                    |      +--------------------+    |                                                                   
-|                                                           |                  |             +-----------------+    |      |                    |    |                                                                   
-|                                                           |                  |             |                 |    |      |                    |    |                                                                   
-|                                    +-----------+          |      Integer     |-------------|                 -----|------|                    |----|                                                                   
-|                 +------------+     |           |----------|   Register File  |-------------|   Arithmetic    |           |     Data Memory    |                                                                        
-|   +----+        |            |     |           |----------|                  |             |     Logical     |           |                    |                                                                        
-|-- | pc |--------|   Ins.r    ------|  Decoder  |----------|                  |    |--------|       Unit      |           |                    |                                                                        
-    +----+        |   Memory   |     |           |---|      |                  |    |   |----|                 |         --|                    |                                                                        
-                  |            |     |           |   |      |                  |    |   |    |                 |         | |                    |                                                                        
-                  +------------+     +-----------+   |      +------------------+    |   |    +-----------------+         | +--------------------+                                                                        
-                                                     | +---------+                  |   |                                |                                                                                               
-                                                     --|         |------------------|----                                |                                                                                               
-                                                       |Imm.     |                  |------------------------------------|                                                                                               
-                                                       |Generator|                                                                                                                                
-                                                       +---------+                                                                                                                                  
-                                                                                                                                                                                                                         
-                                                                                                                                                                                                                         
-                                                                                                                                                                                                                         
-                                                                                                                                                                                                                            
-```
+## Goal
 
-### What can diablo do?
-- Run instructions out-of-order after resolving data dependencies between multiple operands.
-- It can perform vector operations, floating-point operations and atomics.
-- We want to have diablo run Linux.
+- Implement an Out-Of-Order pipeline (Fetch, Decode, Rename, Issue, Execute, Commit) using Spade.
+- Run instructions out-of-order after resolving data dependencies.
+- Boot Linux in a Verilator simulation.
+- Serve as a testbed for new microarchitecture projects.
 
+## Legacy Code
 
-- Currently under development
+The original SystemVerilog single-cycle and partial OoO implementations have been archived to the `legacy/` directory.
