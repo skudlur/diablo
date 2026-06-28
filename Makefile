@@ -3,9 +3,12 @@
 BSC = bsc
 BSC_FLAGS = -keep-fires -cross-info -u
 
-# Source directories
-BSC_DIR_FLAGS = -p +:src
+# External Dependencies
+FLUTE_DIR = ../Flute
+TOOOBA_DIR = ../Toooba
 
+# Source directories
+BSC_DIR_FLAGS = -p +:src:$(FLUTE_DIR)/src_Core/ISA:$(FLUTE_DIR)/src_Core/RegFiles:$(FLUTE_DIR)/src_Core/Core:$(TOOOBA_DIR)/src_Core/RISCY_OOO/procs/lib
 # Build directories
 BUILD_DIR = build
 SIM_DIR = sim

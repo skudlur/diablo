@@ -1,36 +1,25 @@
 package Tb;
 
 import DiabloTypes::*;
+import DiabloCore::*;
 
 (* synthesize *)
 module mkTb (Empty);
 
     Reg#(int) cycle <- mkReg(0);
+    DiabloCore_IFC core <- mkDiabloCore;
+
+    rule start_core (cycle == 0);
+        core.start(64'h1000); // Dummy boot PC
+    endrule
 
     rule count_cycles;
         cycle <= cycle + 1;
-        if (cycle > 5) begin
-            $display("SUCCESS: Testbench ran to completion.");
+        $display("Cycle %0d", cycle);
+        if (cycle > 10) begin
+            $display("SUCCESS: DiabloCore M0 pipeline compiled and ran for 10 cycles.");
             $finish(0);
         end
-    endrule
-
-    rule test_types (cycle == 1);
-        IssueSlot slot = unpack(0);
-        slot.uop_type = UOP_ALU;
-        slot.prd = 7'd10;
-        slot.prs1_rdy = True;
-        
-        $display("Created IssueSlot: uop_type=%0d, prd=%0d, prs1_rdy=%0d", 
-                 slot.uop_type, slot.prd, slot.prs1_rdy);
-                 
-        RobSlot rob = unpack(0);
-        rob.is_last = True;
-        rob.prd = 7'd10;
-        rob.ard = 5'd1;
-        
-        $display("Created RobSlot: is_last=%0d, prd=%0d, ard=%0d", 
-                 rob.is_last, rob.prd, rob.ard);
     endrule
 
 endmodule

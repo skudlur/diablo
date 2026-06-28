@@ -1,55 +1,79 @@
 package DiabloTypes;
 
 // Diablo core data types and structures
-// Extracted from the Microarchitecture Specification (MAS)
+// Based on the Diablo v0.1 Design Reference
 
-// Physical Register Index (96 Int + 96 FP requires 7 bits)
-typedef bit [6:0] PhysReg;
+// ----------------------------------------------------------------
+// Register Specifiers
+// ----------------------------------------------------------------
 
-// Micro-Op Types
-typedef enum {
-    UOP_ALU,
-    UOP_BRANCH,
-    UOP_JUMP,
-    UOP_CSR,
-    UOP_MUL,
-    UOP_DIV,
-    UOP_LOAD,
-    UOP_STORE,
-    UOP_FPU
+// 64 Architectural Registers (32 Int + 32 FP)
+typedef bit [5:0] ArchReg;
+
+// 192 Physical Registers (96 Int + 96 FP requires 8 bits to index fully, or just 7 bits if split. 
+// Since 96 + 96 = 192, we need 8 bits for a unified PhysReg index).
+typedef bit [7:0] PhysReg;
+
+// ----------------------------------------------------------------
+// Micro-Op (uOP) and Execution Types
+// ----------------------------------------------------------------
+
+// Execution Unit Type filtering for the unified issue queue
+typedef enum { 
+    ALU, 
+    MEM_AGU, 
+    MEM_LS, 
+    BRANCH, 
+    FP, 
+    SYS, 
+    ROCC 
 } UopType deriving (Bits, Eq, FShow);
 
-// Execution Unit Type for Issue Queue filtering
-typedef enum {
-    EU_ALU,
-    EU_MUL,
-    EU_DIV,
-    EU_MEM,
-    EU_FPU
-} EUType deriving (Bits, Eq, FShow);
+// ROB Index - 64 entries
+typedef bit [5:0] MopId;
 
-// Issue Queue Slot
+// Immediate Value
+typedef bit [63:0] UopImm;
+
+// Functional Unit specific selector (e.g. ADD vs SUB vs XOR)
+typedef bit [4:0] FuSelect;
+
+// Age tag for the oldest-ready tournament selector
+typedef bit [7:0] UopAge;
+
+// The MicroOp structure dispatched to the Issue Queue
 typedef struct {
-    UopType   uop_type;
-    EUType    eu_type;
-    PhysReg   prd;       // Physical destination register
-    PhysReg   prs1;      // Physical source register 1
-    PhysReg   prs2;      // Physical source register 2
-    Bool      prs1_rdy;  // Source 1 ready flag
-    Bool      prs2_rdy;  // Source 2 ready flag
-    bit[63:0] imm;       // Immediate value
-    bit[7:0]  age;       // Age for tournament selection
-    bit[3:0]  epoch;     // Branch epoch tag
+    MopId       mop_id;      // Links back to ROB entry
+    UopType     uop_type;    // Determines which EU can accept this uop
+    PhysReg     prs1;        // Physical source register 1
+    PhysReg     prs2;        // Physical source register 2
+    PhysReg     prd;         // Physical destination register
+    Bool        prs1_rdy;    // Scoreboard snapshot at dispatch time
+    Bool        prs2_rdy;    // Scoreboard snapshot at dispatch time
+    UopImm      imm;         // Pre-decoded, sign-extended immediate
+    FuSelect    fu_sel;      // Exact functional unit selector
+    UopAge      age;         // Logical age for age-ordered issue
+    Bool        is_last;     // Marks the last uop of a MOP (triggers commit)
+} Uop deriving (Bits, Eq, FShow);
+
+// ----------------------------------------------------------------
+// Issue & Reorder Buffer Types
+// ----------------------------------------------------------------
+
+// Unified Age-Ordered Issue Queue Slot (24 entries)
+typedef struct {
+    Bool      valid;
+    Uop       uop;
 } IssueSlot deriving (Bits, Eq, FShow);
 
-// Reorder Buffer (ROB) Slot
+// Reorder Buffer (ROB) Slot (64 entries)
 typedef struct {
-    Bool      is_last;   // Marks the end of a Macro-Op (MOP)
-    PhysReg   prd;       // Physical destination register to commit
-    bit[4:0]  ard;       // Architectural destination register
-    bit[3:0]  epoch;     // Branch epoch tag
-    Bool      completed; // Set when writeback happens
-    Bool      excepting; // Exception flagged
+    Bool      is_last;       // Marks the final uOP of an architectural instruction
+    PhysReg   prd;           // Physical destination register mapped for this instruction
+    ArchReg   ard;           // Architectural destination register to update on commit
+    bit[3:0]  epoch;         // Branch tracking epoch tag
+    Bool      completed;     // Set when writeback happens
+    Bool      excepting;     // Set if an exception occurred during execution
 } RobSlot deriving (Bits, Eq, FShow);
 
 endpackage
