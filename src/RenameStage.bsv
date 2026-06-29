@@ -15,11 +15,15 @@ interface RenameStage_IFC;
     method Action deq();
     method Bool notEmpty();
     
-    // Retire / Commit signals
+    // Retire / Commit signal
     method Action commitRegister(PhysReg old_prd);
     
     // Flush & Recovery
     method Action flush(bit[3:0] mispredict_epoch);
+    method Action resolve_correct_branch();
+    
+    // Scoreboard wakeup
+    method Action wakeup(PhysReg prd);
 endinterface
 
 // Basic M0 Rename Stage module
@@ -39,8 +43,19 @@ module mkRenameStage(RenameStage_IFC);
     // ArchReg 0-63 map to PhysReg 0-63 at reset. PhysReg 64-95 go to the free list.
     FIFOF#(PhysReg) freeList <- mkSizedFIFOF(96);
     
+    // BusyTable: Tracks if a physical register is currently being computed
+    Vector#(96, Reg#(Bool)) busyTable <- replicateM(mkReg(False));
+    
+    // Wakeup Wire from Execute Writeback
+    Wire#(Maybe#(PhysReg)) wakeup_wire <- mkDWire(tagged Invalid);
+    
+    // Commit wire
+    Wire#(Maybe#(PhysReg)) commit_wire <- mkDWire(tagged Invalid);
+    
     Reg#(Bool) initialized <- mkReg(False);
     Reg#(PhysReg) init_counter <- mkReg(64); 
+    
+    Reg#(Bool) stall_on_branch <- mkReg(False);
     
     // Initialize the free list and base rename table
     rule do_initialize (!initialized);
@@ -53,7 +68,7 @@ module mkRenameStage(RenameStage_IFC);
     endrule
 
     // Main Rename rule
-    rule do_rename (initialized && inQ.notEmpty() && freeList.notEmpty() && outQ.notFull());
+    rule do_rename (initialized && inQ.notEmpty() && freeList.notEmpty() && outQ.notFull() && !stall_on_branch);
         let d = inQ.first();
         inQ.deq();
         
@@ -61,34 +76,84 @@ module mkRenameStage(RenameStage_IFC);
         PhysReg p_src1 = renameTable[d.src1];
         PhysReg p_src2 = renameTable[d.src2];
         
+        // Capture old mapping before overwriting (for freeing at commit)
+        PhysReg old_dst = renameTable[d.dst];
+        
         // Allocate destination (Except for x0 which always maps to p0 and is never renamed)
         PhysReg p_dst = 0;
         if (d.dst != 0) begin
             p_dst = freeList.first();
             freeList.deq();
             renameTable[d.dst] <= p_dst;
-            
-            // Note: In a full implementation, we'd also store a snapshot here for branches
+            busyTable[p_dst] <= True; // Mark as busy until writeback
+        end else begin
+            old_dst = 0; // x0 has no old mapping to free
         end
         
         // Create the Uop for the backend
+        Bool rdy1 = !busyTable[p_src1];
+        Bool rdy2 = !busyTable[p_src2];
+        
+        // Snooping wakeup from this cycle
+        if (wakeup_wire matches tagged Valid .prd) begin
+            if (p_src1 == prd) rdy1 = True;
+            if (p_src2 == prd) rdy2 = True;
+        end
+        
         Uop out_uop = Uop {
             mop_id:   0,       // M0 stub: Will be allocated by ROB
+            pc:       d.pc,
+            pred_pc:  d.pred_pc,
             uop_type: d.uop_type,
             prs1:     p_src1,
             prs2:     p_src2,
             prd:      p_dst,
-            prs1_rdy: False,   // M0 stub: Will be checked against scoreboard
-            prs2_rdy: False,   // M0 stub: Will be checked against scoreboard
+            old_prd:  old_dst,
+            prs1_rdy: rdy1,
+            prs2_rdy: rdy2,
             imm:      d.imm,
             fu_sel:   d.fu_sel,
             age:      0,       // M0 stub: Assigned at Issue queue entry
+            mem_size: d.mem_size,
+            is_store: d.is_store,
             is_last:  d.is_last
         };
         
+        if (d.uop_type == BRANCH) begin
+            stall_on_branch <= True;
+        end
+
+        
+        // $display("RenameStage: Renamed PC = %x", d.pc);
         outQ.enq(out_uop);
     endrule
     
+    rule process_wakeup;
+        if (wakeup_wire matches tagged Valid .prd) begin
+            if (prd != 0) begin
+                busyTable[prd] <= False;
+            end
+        end
+    endrule
+
+    rule debug_status (initialized);
+        // $display("RenameStage Status: init=%b, inQ_notEmpty=%b, freeList_notEmpty=%b, outQ_notFull=%b, outQ_notEmpty=%b", 
+        //          initialized, inQ.notEmpty(), freeList.notEmpty(), outQ.notFull(), outQ.notEmpty());
+    endrule
+    
+    // Rule to process commit frees
+    rule do_commit_free (initialized);
+        if (commit_wire matches tagged Valid .prd) begin
+            if (prd != 0) freeList.enq(prd);
+        end
+    endrule
+    
+    Wire#(Bool) resolve_branch_wire <- mkDWire(False);
+    
+    rule process_resolve_branch (resolve_branch_wire);
+        stall_on_branch <= False;
+    endrule
+
     // --- Interfaces ---
 
     method Action enq(Decode2Rename in) if (initialized && inQ.notFull());
@@ -108,16 +173,22 @@ module mkRenameStage(RenameStage_IFC);
     endmethod
     
     method Action commitRegister(PhysReg old_prd);
-        // When an instruction commits, its previous physical destination mapping is freed
-        if (old_prd != 0) begin
-            freeList.enq(old_prd);
-        end
+        commit_wire <= tagged Valid old_prd;
     endmethod
     
     method Action flush(bit[3:0] mispredict_epoch);
+        // M0 Stub: In a real core, we restore the rename table from a snapshot
         inQ.clear();
         outQ.clear();
-        // M0 stub: A full flush would also restore the rename table from the branch snapshot array
+        stall_on_branch <= False;
+    endmethod
+    
+    method Action resolve_correct_branch();
+        resolve_branch_wire <= True;
+    endmethod
+    
+    method Action wakeup(PhysReg prd);
+        wakeup_wire <= tagged Valid prd;
     endmethod
 
 endmodule

@@ -6,7 +6,7 @@ import DiabloTypes::*;
 interface ReorderBuffer_IFC;
     // Dispatch (Allocate) - from Rename stage
     // Returns the allocated MopId (ROB index) to be attached to the Uop
-    method ActionValue#(MopId) allocate(Bool is_last, PhysReg prd, ArchReg ard, bit[3:0] epoch);
+    method ActionValue#(MopId) allocate(Bool is_last, PhysReg prd, PhysReg old_prd, ArchReg ard, bit[3:0] epoch);
     method Bool notFull();
     
     // Writeback (Complete) - from Execute stage
@@ -17,6 +17,7 @@ interface ReorderBuffer_IFC;
     // so the Rename stage can free the OLD physical registers, and the Commit stage
     // can update the architectural state if is_last is true.
     method ActionValue#(Tuple2#(Maybe#(RobSlot), Maybe#(RobSlot))) commit();
+    method Bool is_head_completed();
     
     // Exception / Flush
     method Bool get_pending_exception();
@@ -28,7 +29,7 @@ module mkReorderBuffer(ReorderBuffer_IFC);
 
     // 64-entry circular buffer
     Vector#(64, Reg#(RobSlot)) rob <- replicateM(mkReg(RobSlot{
-        is_last: False, prd: 0, ard: 0, epoch: 0, completed: False, excepting: False
+        is_last: False, prd: 0, old_prd: 0, ard: 0, epoch: 0, completed: False, excepting: False
     }));
     
     // Head points to oldest entry, Tail points to next free slot
@@ -47,12 +48,13 @@ module mkReorderBuffer(ReorderBuffer_IFC);
         return (count < 64);
     endmethod
 
-    method ActionValue#(MopId) allocate(Bool is_last, PhysReg prd, ArchReg ard, bit[3:0] epoch) if (count < 64);
+    method ActionValue#(MopId) allocate(Bool is_last, PhysReg prd, PhysReg old_prd, ArchReg ard, bit[3:0] epoch) if (count < 64);
         MopId id = pack(tail);
         
         rob[tail] <= RobSlot {
             is_last:   is_last,
             prd:       prd,
+            old_prd:   old_prd,
             ard:       ard,
             epoch:     epoch,
             completed: False,
@@ -73,7 +75,7 @@ module mkReorderBuffer(ReorderBuffer_IFC);
         rob[idx] <= slot;
     endmethod
     
-    // Commits up to 2 uOPs per cycle
+    // Commits up to 1 uOP per cycle (single free-list port)
     method ActionValue#(Tuple2#(Maybe#(RobSlot), Maybe#(RobSlot))) commit() if (count > 0 && !pending_exception);
         Maybe#(RobSlot) ret1 = tagged Invalid;
         Maybe#(RobSlot) ret2 = tagged Invalid;
@@ -92,32 +94,24 @@ module mkReorderBuffer(ReorderBuffer_IFC);
                     ret1 = tagged Valid slot1;
                     next_head = (next_head == 63) ? 0 : next_head + 1;
                     next_count = next_count - 1;
-                    
-                    // Attempt to commit slot 2 if slot 1 succeeded
-                    if (next_count > 0) begin
-                        let slot2 = rob[next_head];
-                        if (slot2.completed) begin
-                            if (slot2.excepting) begin
-                                triggered_exception = True;
-                            end else begin
-                                ret2 = tagged Valid slot2;
-                                next_head = (next_head == 63) ? 0 : next_head + 1;
-                                next_count = next_count - 1;
-                            end
-                        end
-                    end
                 end
             end
         end
         
-        head <= next_head;
-        count <= next_count;
+        if (isValid(ret1) || triggered_exception) begin
+            head <= next_head;
+            count <= next_count;
+        end
         
         if (triggered_exception) begin
             pending_exception <= True;
         end
         
         return tuple2(ret1, ret2);
+    endmethod
+    
+    method Bool is_head_completed();
+        return (count > 0) ? rob[head].completed : False;
     endmethod
     
     method Bool get_pending_exception();

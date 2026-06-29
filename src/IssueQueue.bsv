@@ -1,5 +1,6 @@
 package IssueQueue;
 
+import FIFOF::*;
 import Vector::*;
 import DiabloTypes::*;
 
@@ -13,23 +14,35 @@ interface IssueQueue_IFC;
     method Action wakeup(PhysReg prd);
     
     // Issue ports for different Execution Units
+    method Bool has_ready_ALU();
     method ActionValue#(Uop) issue_ALU();
+    
+    method Bool has_ready_MEM_AGU();
     method ActionValue#(Uop) issue_MEM_AGU();
+    
+    method Bool has_ready_BRANCH();
     method ActionValue#(Uop) issue_BRANCH();
+    
+    method Bool has_ready_MULT();
+    method ActionValue#(Uop) issue_MULT();
     
     // Flush pipeline
     method Action flush();
+    
+    // Debug
+    method Action dump();
 endinterface
 
 (* synthesize *)
 module mkIssueQueue(IssueQueue_IFC);
 
-    // The 24-entry unified queue array
-    Vector#(24, Reg#(IssueSlot)) queue <- replicateM(mkReg(IssueSlot{valid: False, uop: ?}));
+    Vector#(8, Reg#(IssueSlot)) queue <- replicateM(mkReg(IssueSlot{valid: False, uop: ?}));
     
-    // RWire for intra-cycle wakeup bypass. Allows instructions to issue the same 
-    // cycle their dependencies are broadcasted over the wakeup network.
-    RWire#(PhysReg) wakeupWire <- mkRWire();
+    // Decoupling Wires
+    Wire#(Maybe#(Uop)) dispatch_wire <- mkDWire(tagged Invalid);
+    Wire#(Maybe#(PhysReg)) wakeup_wire <- mkDWire(tagged Invalid);
+    Vector#(8, Wire#(Bool)) issued_wire <- replicateM(mkDWire(False));
+    Wire#(Bool) flush_wire <- mkDWire(False);
 
     // Helper: Select the older Uop (smaller age value is older)
     function Maybe#(Tuple2#(UInt#(5), Uop)) pickOlder(Maybe#(Tuple2#(UInt#(5), Uop)) a, Maybe#(Tuple2#(UInt#(5), Uop)) b);
@@ -45,23 +58,34 @@ module mkIssueQueue(IssueQueue_IFC);
         end
     endfunction
 
-    // Helper: Check readiness considering current cycle wakeups (RWire bypass)
-    function Bool isReady(Uop u, Maybe#(PhysReg) broadcast_prd);
-        // prs=0 is x0, which is always ready. 
-        // Otherwise it's ready if previously marked ready OR currently being woken up
-        Bool rdy1 = u.prs1 == 0 || u.prs1_rdy || (isValid(broadcast_prd) && fromMaybe(?, broadcast_prd) == u.prs1);
-        Bool rdy2 = u.prs2 == 0 || u.prs2_rdy || (isValid(broadcast_prd) && fromMaybe(?, broadcast_prd) == u.prs2);
+    // Helper: Check readiness
+    function Bool isReady(Uop u);
+        Bool rdy1 = u.prs1 == 0 || u.prs1_rdy;
+        Bool rdy2 = u.prs2 == 0 || u.prs2_rdy;
         return rdy1 && rdy2;
     endfunction
 
-    // Tournament tree root function: Map-Reduce over the 24 entries
+    // Tournament tree root function
     function Maybe#(Tuple2#(UInt#(5), Uop)) findOldestReady(UopType targetType);
-        Vector#(24, Maybe#(Tuple2#(UInt#(5), Uop))) candidates;
-        let wkup = wakeupWire.wget();
+        Vector#(8, Maybe#(Tuple2#(UInt#(5), Uop))) candidates;
         
-        for (Integer i = 0; i < 24; i = i + 1) begin
-            if (queue[i].valid && queue[i].uop.uop_type == targetType && isReady(queue[i].uop, wkup)) begin
-                candidates[i] = tagged Valid tuple2(fromInteger(i), queue[i].uop);
+        for (Integer i = 0; i < 8; i = i + 1) begin
+            // Also consider instructions that are waking up this cycle
+            Bool is_woken = False;
+            if (wakeup_wire matches tagged Valid .prd) begin
+                if (queue[i].uop.prs1 == prd) is_woken = True;
+                if (queue[i].uop.prs2 == prd) is_woken = True;
+            end
+            
+            if (queue[i].valid && queue[i].uop.uop_type == targetType && (isReady(queue[i].uop) || is_woken)) begin
+                // Check full readiness again including wire
+                Bool r1 = queue[i].uop.prs1 == 0 || queue[i].uop.prs1_rdy || (isValid(wakeup_wire) && fromMaybe(?, wakeup_wire) == queue[i].uop.prs1);
+                Bool r2 = queue[i].uop.prs2 == 0 || queue[i].uop.prs2_rdy || (isValid(wakeup_wire) && fromMaybe(?, wakeup_wire) == queue[i].uop.prs2);
+                if (r1 && r2) begin
+                    candidates[i] = tagged Valid tuple2(fromInteger(i), queue[i].uop);
+                end else begin
+                    candidates[i] = tagged Invalid;
+                end
             end else begin
                 candidates[i] = tagged Invalid;
             end
@@ -69,86 +93,123 @@ module mkIssueQueue(IssueQueue_IFC);
         return fold(pickOlder, candidates);
     endfunction
 
-    // Determine if we have a free slot
-    function Maybe#(UInt#(5)) findFreeSlot();
-        Maybe#(UInt#(5)) res = tagged Invalid;
-        // Prioritize lower indices just as a standard convention
-        for (Integer i = 23; i >= 0; i = i - 1) begin
-            if (!queue[i].valid) res = tagged Valid fromInteger(i);
-        end
-        return res;
-    endfunction
-
-    // Rule: Commit the wakeup state into registers at the end of the clock cycle
-    rule update_wakeup_state (isValid(wakeupWire.wget()));
-        let prd = fromMaybe(?, wakeupWire.wget());
-        if (prd != 0) begin
-            for (Integer i = 0; i < 24; i = i + 1) begin
-                if (queue[i].valid) begin
-                    let u = queue[i].uop;
-                    if (u.prs1 == prd) u.prs1_rdy = True;
-                    if (u.prs2 == prd) u.prs2_rdy = True;
-                    queue[i] <= IssueSlot { valid: True, uop: u };
+    // Single Rule to update the queue state
+    rule update_queue;
+        IssueSlot new_queue[8];
+        for (Integer i = 0; i < 8; i = i + 1) new_queue[i] = queue[i];
+        
+        if (flush_wire) begin
+            for (Integer i = 0; i < 8; i = i + 1) new_queue[i].valid = False;
+        end else begin
+            // 1. Clear issued slots
+            for (Integer i = 0; i < 8; i = i + 1) begin
+                if (issued_wire[i]) new_queue[i].valid = False;
+            end
+            
+            // 2. Apply wakeups
+            if (wakeup_wire matches tagged Valid .prd) begin
+                if (prd != 0) begin
+                    for (Integer i = 0; i < 8; i = i + 1) begin
+                        if (new_queue[i].valid) begin
+                            if (new_queue[i].uop.prs1 == prd) new_queue[i].uop.prs1_rdy = True;
+                            if (new_queue[i].uop.prs2 == prd) new_queue[i].uop.prs2_rdy = True;
+                        end
+                    end
                 end
             end
+            
+            // 3. Apply dispatch
+            if (dispatch_wire matches tagged Valid .u) begin
+                let uop_mod = u;
+                if (wakeup_wire matches tagged Valid .prd) begin
+                    if (prd != 0) begin
+                        if (uop_mod.prs1 == prd) uop_mod.prs1_rdy = True;
+                        if (uop_mod.prs2 == prd) uop_mod.prs2_rdy = True;
+                    end
+                end
+                Maybe#(UInt#(5)) free_slot = tagged Invalid;
+                for (Integer i = 7; i >= 0; i = i - 1) begin
+                    if (!new_queue[i].valid) free_slot = tagged Valid fromInteger(i);
+                end
+                if (free_slot matches tagged Valid .idx) begin
+                    new_queue[idx] = IssueSlot { valid: True, uop: uop_mod };
+                end
+            end
+        end
+        
+        for (Integer i = 0; i < 8; i = i + 1) begin
+            queue[i] <= new_queue[i];
         end
     endrule
 
     // --- Interfaces ---
 
     method Bool notFull();
-        return isValid(findFreeSlot());
+        Bool has_free = False;
+        for (Integer i = 0; i < 8; i = i + 1) begin
+            if (!queue[i].valid) has_free = True;
+        end
+        return has_free;
     endmethod
 
-    // Dispatch an instruction into the queue
-    method Action dispatch(Uop in) if (isValid(findFreeSlot()));
-        let idx = fromMaybe(?, findFreeSlot());
-        
-        // Immediate wakeup bypass check at dispatch time
-        // E.g., if dispatching in the same cycle a dependency is completing
-        let wkup = wakeupWire.wget();
-        if (isValid(wkup)) begin
-            let prd = fromMaybe(?, wkup);
-            if (in.prs1 == prd && prd != 0) in.prs1_rdy = True;
-            if (in.prs2 == prd && prd != 0) in.prs2_rdy = True;
-        end
-        
-        queue[idx] <= IssueSlot { valid: True, uop: in };
+    method Action dispatch(Uop in);
+        dispatch_wire <= tagged Valid in;
     endmethod
     
-    // Broadcast a wakeup tag
     method Action wakeup(PhysReg prd);
-        wakeupWire.wset(prd);
+        wakeup_wire <= tagged Valid prd;
     endmethod
     
-    // Issue oldest-ready ALU
+    method Bool has_ready_ALU();
+        return isValid(findOldestReady(ALU));
+    endmethod
     method ActionValue#(Uop) issue_ALU() if (isValid(findOldestReady(ALU)));
         let res = fromMaybe(?, findOldestReady(ALU));
         let idx = tpl_1(res);
-        queue[idx] <= IssueSlot { valid: False, uop: ? }; // Clear slot on issue
+        issued_wire[idx] <= True;
         return tpl_2(res);
     endmethod
 
-    // Issue oldest-ready MEM (AGU)
+    method Bool has_ready_MEM_AGU();
+        return isValid(findOldestReady(MEM_AGU));
+    endmethod
     method ActionValue#(Uop) issue_MEM_AGU() if (isValid(findOldestReady(MEM_AGU)));
         let res = fromMaybe(?, findOldestReady(MEM_AGU));
         let idx = tpl_1(res);
-        queue[idx] <= IssueSlot { valid: False, uop: ? };
+        issued_wire[idx] <= True;
         return tpl_2(res);
     endmethod
     
-    // Issue oldest-ready BRANCH
+    method Bool has_ready_BRANCH();
+        return isValid(findOldestReady(BRANCH));
+    endmethod
     method ActionValue#(Uop) issue_BRANCH() if (isValid(findOldestReady(BRANCH)));
         let res = fromMaybe(?, findOldestReady(BRANCH));
         let idx = tpl_1(res);
-        queue[idx] <= IssueSlot { valid: False, uop: ? };
+        issued_wire[idx] <= True;
         return tpl_2(res);
     endmethod
 
-    // Flush on mispredict / exception
+    method Bool has_ready_MULT();
+        return isValid(findOldestReady(MULT));
+    endmethod
+    method ActionValue#(Uop) issue_MULT() if (isValid(findOldestReady(MULT)));
+        let res = fromMaybe(?, findOldestReady(MULT));
+        let idx = tpl_1(res);
+        issued_wire[idx] <= True;
+        return tpl_2(res);
+    endmethod
+
     method Action flush();
-        for (Integer i = 0; i < 24; i = i + 1) begin
-            queue[i] <= IssueSlot { valid: False, uop: ? };
+        flush_wire <= True;
+    endmethod
+    
+    method Action dump();
+        for (Integer i = 0; i < 8; i = i + 1) begin
+            if (queue[i].valid) begin
+                $display("  IQ[%0d]: pc=%x, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
+                         i, queue[i].uop.pc, queue[i].uop.prs1, queue[i].uop.prs1_rdy, queue[i].uop.prs2, queue[i].uop.prs2_rdy, queue[i].uop.prd);
+            end
         end
     endmethod
 

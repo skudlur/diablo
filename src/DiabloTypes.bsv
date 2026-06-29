@@ -24,6 +24,7 @@ typedef enum {
     MEM_AGU, 
     MEM_LS, 
     BRANCH, 
+    MULT,
     FP, 
     SYS, 
     ROCC 
@@ -36,7 +37,7 @@ typedef bit [5:0] MopId;
 typedef bit [63:0] UopImm;
 
 // Functional Unit specific selector (e.g. ADD vs SUB vs XOR)
-typedef bit [4:0] FuSelect;
+typedef bit [5:0] FuSelect;
 
 // Age tag for the oldest-ready tournament selector
 typedef bit [7:0] UopAge;
@@ -44,15 +45,20 @@ typedef bit [7:0] UopAge;
 // The MicroOp structure dispatched to the Issue Queue
 typedef struct {
     MopId       mop_id;      // Links back to ROB entry
+    bit[63:0]   pc;          // Program Counter for branches/exceptions
+    bit[63:0]   pred_pc;     // Predicted next PC from FetchStage
     UopType     uop_type;    // Determines which EU can accept this uop
     PhysReg     prs1;        // Physical source register 1
     PhysReg     prs2;        // Physical source register 2
     PhysReg     prd;         // Physical destination register
+    PhysReg     old_prd;     // Previous physical destination (for ROB to free at commit)
     Bool        prs1_rdy;    // Scoreboard snapshot at dispatch time
     Bool        prs2_rdy;    // Scoreboard snapshot at dispatch time
     UopImm      imm;         // Pre-decoded, sign-extended immediate
     FuSelect    fu_sel;      // Exact functional unit selector
     UopAge      age;         // Logical age for age-ordered issue
+    bit[2:0]    mem_size;
+    Bool        is_store;
     Bool        is_last;     // Marks the last uop of a MOP (triggers commit)
 } Uop deriving (Bits, Eq, FShow);
 
@@ -70,6 +76,7 @@ typedef struct {
 typedef struct {
     Bool      is_last;       // Marks the final uOP of an architectural instruction
     PhysReg   prd;           // Physical destination register mapped for this instruction
+    PhysReg   old_prd;       // Previous physical register mapped to ard (freed at commit)
     ArchReg   ard;           // Architectural destination register to update on commit
     bit[3:0]  epoch;         // Branch tracking epoch tag
     Bool      completed;     // Set when writeback happens
