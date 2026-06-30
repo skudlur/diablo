@@ -1,6 +1,6 @@
 # Makefile for Diablo BSV
 
-BSC = bsc
+BSC = bsc +RTS -K256M -RTS
 BSC_FLAGS = -keep-fires -cross-info -u \
 	-D RV64 \
 	-D ISA_PRIV_M  -D ISA_PRIV_U  -D ISA_PRIV_S  \

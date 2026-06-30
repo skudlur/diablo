@@ -10,7 +10,10 @@ interface ReorderBuffer_IFC;
     method Bool notFull();
     
     // Writeback (Complete) - from Execute stage
-    method Action complete(MopId id, Bool excepting);
+    method Action complete1(MopId id, Bool excepting);
+    method Action complete2(MopId id, Bool excepting);
+    method Action complete3(MopId id, Bool excepting);
+    method Action complete4(MopId id, Bool excepting);
     
     // Commit (Retire) - to Architectural state / Free List
     // We retire up to 2 uOPs per cycle. The method returns the retired slots
@@ -42,6 +45,30 @@ module mkReorderBuffer(ReorderBuffer_IFC);
     // Blocks commit and triggers the flush/recovery state machine
     Reg#(Bool) pending_exception <- mkReg(False);
 
+    Vector#(4, Wire#(Maybe#(Tuple2#(MopId, Bool)))) comp_ports <- replicateM(mkDWire(tagged Invalid));
+
+    rule do_completes;
+        for (Integer j = 0; j < 64; j = j + 1) begin
+            Bool w_match = False;
+            Bool w_excepting = False;
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (comp_ports[w] matches tagged Valid .c_val) begin
+                    UInt#(6) idx = unpack(tpl_1(c_val));
+                    if (idx == fromInteger(j)) begin
+                        w_match = True;
+                        w_excepting = tpl_2(c_val);
+                    end
+                end
+            end
+            if (w_match) begin
+                let slot = rob[j];
+                slot.completed = True;
+                slot.excepting = w_excepting;
+                rob[j] <= slot;
+            end
+        end
+    endrule
+
     // --- Interfaces ---
 
     method Bool notFull();
@@ -67,13 +94,10 @@ module mkReorderBuffer(ReorderBuffer_IFC);
         return id;
     endmethod
     
-    method Action complete(MopId id, Bool excepting);
-        UInt#(6) idx = unpack(id);
-        let slot = rob[idx];
-        slot.completed = True;
-        slot.excepting = excepting;
-        rob[idx] <= slot;
-    endmethod
+    method Action complete1(MopId id, Bool excepting); comp_ports[0] <= tagged Valid tuple2(id, excepting); endmethod
+    method Action complete2(MopId id, Bool excepting); comp_ports[1] <= tagged Valid tuple2(id, excepting); endmethod
+    method Action complete3(MopId id, Bool excepting); comp_ports[2] <= tagged Valid tuple2(id, excepting); endmethod
+    method Action complete4(MopId id, Bool excepting); comp_ports[3] <= tagged Valid tuple2(id, excepting); endmethod
     
     // Commits up to 1 uOP per cycle (single free-list port)
     method ActionValue#(Tuple2#(Maybe#(RobSlot), Maybe#(RobSlot))) commit() if (count > 0 && !pending_exception);

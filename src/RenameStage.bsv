@@ -23,7 +23,10 @@ interface RenameStage_IFC;
     method Action resolve_correct_branch();
     
     // Scoreboard wakeup
-    method Action wakeup(PhysReg prd);
+    method Action wakeup1(PhysReg prd);
+    method Action wakeup2(PhysReg prd);
+    method Action wakeup3(PhysReg prd);
+    method Action wakeup4(PhysReg prd);
 endinterface
 
 // Basic M0 Rename Stage module
@@ -46,8 +49,8 @@ module mkRenameStage(RenameStage_IFC);
     // BusyTable: Tracks if a physical register is currently being computed
     Vector#(96, Reg#(Bool)) busyTable <- replicateM(mkReg(False));
     
-    // Wakeup Wire from Execute Writeback
-    Wire#(Maybe#(PhysReg)) wakeup_wire <- mkDWire(tagged Invalid);
+    // Wakeup Wires from Execute Writeback
+    Vector#(4, Wire#(Maybe#(PhysReg))) wakeup_wires <- replicateM(mkDWire(tagged Invalid));
     
     // Commit wire
     Wire#(Maybe#(PhysReg)) commit_wire <- mkDWire(tagged Invalid);
@@ -95,9 +98,11 @@ module mkRenameStage(RenameStage_IFC);
         Bool rdy2 = !busyTable[p_src2];
         
         // Snooping wakeup from this cycle
-        if (wakeup_wire matches tagged Valid .prd) begin
-            if (p_src1 == prd) rdy1 = True;
-            if (p_src2 == prd) rdy2 = True;
+        for (Integer w = 0; w < 4; w = w + 1) begin
+            if (wakeup_wires[w] matches tagged Valid .prd) begin
+                if (p_src1 == prd) rdy1 = True;
+                if (p_src2 == prd) rdy2 = True;
+            end
         end
         
         Uop out_uop = Uop {
@@ -129,9 +134,17 @@ module mkRenameStage(RenameStage_IFC);
     endrule
     
     rule process_wakeup;
-        if (wakeup_wire matches tagged Valid .prd) begin
-            if (prd != 0) begin
-                busyTable[prd] <= False;
+        for (Integer j = 1; j < 96; j = j + 1) begin
+            Bool w_match = False;
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wakeup_wires[w] matches tagged Valid .prd) begin
+                    if (prd == fromInteger(j)) begin
+                        w_match = True;
+                    end
+                end
+            end
+            if (w_match) begin
+                busyTable[j] <= False;
             end
         end
     endrule
@@ -187,9 +200,10 @@ module mkRenameStage(RenameStage_IFC);
         resolve_branch_wire <= True;
     endmethod
     
-    method Action wakeup(PhysReg prd);
-        wakeup_wire <= tagged Valid prd;
-    endmethod
+    method Action wakeup1(PhysReg prd); wakeup_wires[0] <= tagged Valid prd; endmethod
+    method Action wakeup2(PhysReg prd); wakeup_wires[1] <= tagged Valid prd; endmethod
+    method Action wakeup3(PhysReg prd); wakeup_wires[2] <= tagged Valid prd; endmethod
+    method Action wakeup4(PhysReg prd); wakeup_wires[3] <= tagged Valid prd; endmethod
 
 endmodule
 

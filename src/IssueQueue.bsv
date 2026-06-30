@@ -10,8 +10,10 @@ interface IssueQueue_IFC;
     method Bool notFull();
     
     // Wakeup broadcast (Execute -> IQ)
-    // M0 uses a single wakeup port. Future versions will scale this.
-    method Action wakeup(PhysReg prd);
+    method Action wakeup1(PhysReg prd);
+    method Action wakeup2(PhysReg prd);
+    method Action wakeup3(PhysReg prd);
+    method Action wakeup4(PhysReg prd);
     
     // Issue ports for different Execution Units
     method Bool has_ready_ALU();
@@ -36,12 +38,12 @@ endinterface
 (* synthesize *)
 module mkIssueQueue(IssueQueue_IFC);
 
-    Vector#(8, Reg#(IssueSlot)) queue <- replicateM(mkReg(IssueSlot{valid: False, uop: ?}));
+    Vector#(24, Reg#(IssueSlot)) queue <- replicateM(mkReg(IssueSlot{valid: False, uop: ?}));
     
     // Decoupling Wires
     Wire#(Maybe#(Uop)) dispatch_wire <- mkDWire(tagged Invalid);
-    Wire#(Maybe#(PhysReg)) wakeup_wire <- mkDWire(tagged Invalid);
-    Vector#(8, Wire#(Bool)) issued_wire <- replicateM(mkDWire(False));
+    Vector#(4, Wire#(Maybe#(PhysReg))) wakeup_wires <- replicateM(mkDWire(tagged Invalid));
+    Vector#(24, Wire#(Bool)) issued_wire <- replicateM(mkDWire(False));
     Wire#(Bool) flush_wire <- mkDWire(False);
 
     // Helper: Select the older Uop (smaller age value is older)
@@ -67,20 +69,23 @@ module mkIssueQueue(IssueQueue_IFC);
 
     // Tournament tree root function
     function Maybe#(Tuple2#(UInt#(5), Uop)) findOldestReady(UopType targetType);
-        Vector#(8, Maybe#(Tuple2#(UInt#(5), Uop))) candidates;
+        Vector#(24, Maybe#(Tuple2#(UInt#(5), Uop))) candidates;
         
-        for (Integer i = 0; i < 8; i = i + 1) begin
+        for (Integer i = 0; i < 24; i = i + 1) begin
             // Also consider instructions that are waking up this cycle
-            Bool is_woken = False;
-            if (wakeup_wire matches tagged Valid .prd) begin
-                if (queue[i].uop.prs1 == prd) is_woken = True;
-                if (queue[i].uop.prs2 == prd) is_woken = True;
+            Bool is_woken1 = False;
+            Bool is_woken2 = False;
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wakeup_wires[w] matches tagged Valid .prd) begin
+                    if (queue[i].uop.prs1 == prd) is_woken1 = True;
+                    if (queue[i].uop.prs2 == prd) is_woken2 = True;
+                end
             end
             
-            if (queue[i].valid && queue[i].uop.uop_type == targetType && (isReady(queue[i].uop) || is_woken)) begin
+            if (queue[i].valid && queue[i].uop.uop_type == targetType) begin
                 // Check full readiness again including wire
-                Bool r1 = queue[i].uop.prs1 == 0 || queue[i].uop.prs1_rdy || (isValid(wakeup_wire) && fromMaybe(?, wakeup_wire) == queue[i].uop.prs1);
-                Bool r2 = queue[i].uop.prs2 == 0 || queue[i].uop.prs2_rdy || (isValid(wakeup_wire) && fromMaybe(?, wakeup_wire) == queue[i].uop.prs2);
+                Bool r1 = queue[i].uop.prs1 == 0 || queue[i].uop.prs1_rdy || is_woken1;
+                Bool r2 = queue[i].uop.prs2 == 0 || queue[i].uop.prs2_rdy || is_woken2;
                 if (r1 && r2) begin
                     candidates[i] = tagged Valid tuple2(fromInteger(i), queue[i].uop);
                 end else begin
@@ -95,24 +100,26 @@ module mkIssueQueue(IssueQueue_IFC);
 
     // Single Rule to update the queue state
     rule update_queue;
-        IssueSlot new_queue[8];
-        for (Integer i = 0; i < 8; i = i + 1) new_queue[i] = queue[i];
+        IssueSlot new_queue[24];
+        for (Integer i = 0; i < 24; i = i + 1) new_queue[i] = queue[i];
         
         if (flush_wire) begin
-            for (Integer i = 0; i < 8; i = i + 1) new_queue[i].valid = False;
+            for (Integer i = 0; i < 24; i = i + 1) new_queue[i].valid = False;
         end else begin
             // 1. Clear issued slots
-            for (Integer i = 0; i < 8; i = i + 1) begin
+            for (Integer i = 0; i < 24; i = i + 1) begin
                 if (issued_wire[i]) new_queue[i].valid = False;
             end
             
             // 2. Apply wakeups
-            if (wakeup_wire matches tagged Valid .prd) begin
-                if (prd != 0) begin
-                    for (Integer i = 0; i < 8; i = i + 1) begin
-                        if (new_queue[i].valid) begin
-                            if (new_queue[i].uop.prs1 == prd) new_queue[i].uop.prs1_rdy = True;
-                            if (new_queue[i].uop.prs2 == prd) new_queue[i].uop.prs2_rdy = True;
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wakeup_wires[w] matches tagged Valid .prd) begin
+                    if (prd != 0) begin
+                        for (Integer i = 0; i < 24; i = i + 1) begin
+                            if (new_queue[i].valid) begin
+                                if (new_queue[i].uop.prs1 == prd) new_queue[i].uop.prs1_rdy = True;
+                                if (new_queue[i].uop.prs2 == prd) new_queue[i].uop.prs2_rdy = True;
+                            end
                         end
                     end
                 end
@@ -120,15 +127,17 @@ module mkIssueQueue(IssueQueue_IFC);
             
             // 3. Apply dispatch
             if (dispatch_wire matches tagged Valid .u) begin
-                let uop_mod = u;
-                if (wakeup_wire matches tagged Valid .prd) begin
-                    if (prd != 0) begin
-                        if (uop_mod.prs1 == prd) uop_mod.prs1_rdy = True;
-                        if (uop_mod.prs2 == prd) uop_mod.prs2_rdy = True;
+                Uop uop_mod = u;
+                for (Integer w = 0; w < 4; w = w + 1) begin
+                    if (wakeup_wires[w] matches tagged Valid .prd) begin
+                        if (prd != 0) begin
+                            if (uop_mod.prs1 == prd) uop_mod.prs1_rdy = True;
+                            if (uop_mod.prs2 == prd) uop_mod.prs2_rdy = True;
+                        end
                     end
                 end
                 Maybe#(UInt#(5)) free_slot = tagged Invalid;
-                for (Integer i = 7; i >= 0; i = i - 1) begin
+                for (Integer i = 23; i >= 0; i = i - 1) begin
                     if (!new_queue[i].valid) free_slot = tagged Valid fromInteger(i);
                 end
                 if (free_slot matches tagged Valid .idx) begin
@@ -137,8 +146,19 @@ module mkIssueQueue(IssueQueue_IFC);
             end
         end
         
-        for (Integer i = 0; i < 8; i = i + 1) begin
+        for (Integer i = 0; i < 24; i = i + 1) begin
             queue[i] <= new_queue[i];
+        end
+        
+        // Debug dump
+        if (new_queue[0].valid) begin
+            $display("IssueQueue Dump (cycle top):");
+            for (Integer i = 0; i < 24; i = i + 1) begin
+                if (new_queue[i].valid) begin
+                    $display("  IQ[%0d]: pc=%x, type=%d, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
+                             i, new_queue[i].uop.pc, new_queue[i].uop.uop_type, new_queue[i].uop.prs1, new_queue[i].uop.prs1_rdy, new_queue[i].uop.prs2, new_queue[i].uop.prs2_rdy, new_queue[i].uop.prd);
+                end
+            end
         end
     endrule
 
@@ -146,7 +166,7 @@ module mkIssueQueue(IssueQueue_IFC);
 
     method Bool notFull();
         Bool has_free = False;
-        for (Integer i = 0; i < 8; i = i + 1) begin
+        for (Integer i = 0; i < 24; i = i + 1) begin
             if (!queue[i].valid) has_free = True;
         end
         return has_free;
@@ -156,9 +176,10 @@ module mkIssueQueue(IssueQueue_IFC);
         dispatch_wire <= tagged Valid in;
     endmethod
     
-    method Action wakeup(PhysReg prd);
-        wakeup_wire <= tagged Valid prd;
-    endmethod
+    method Action wakeup1(PhysReg prd); wakeup_wires[0] <= tagged Valid prd; endmethod
+    method Action wakeup2(PhysReg prd); wakeup_wires[1] <= tagged Valid prd; endmethod
+    method Action wakeup3(PhysReg prd); wakeup_wires[2] <= tagged Valid prd; endmethod
+    method Action wakeup4(PhysReg prd); wakeup_wires[3] <= tagged Valid prd; endmethod
     
     method Bool has_ready_ALU();
         return isValid(findOldestReady(ALU));
@@ -205,10 +226,10 @@ module mkIssueQueue(IssueQueue_IFC);
     endmethod
     
     method Action dump();
-        for (Integer i = 0; i < 8; i = i + 1) begin
+        for (Integer i = 0; i < 24; i = i + 1) begin
             if (queue[i].valid) begin
-                //$display("  IQ[%0d]: pc=%x, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
-                //         i, queue[i].uop.pc, queue[i].uop.prs1, queue[i].uop.prs1_rdy, queue[i].uop.prs2, queue[i].uop.prs2_rdy, queue[i].uop.prd);
+                $display("  IQ[%0d]: pc=%x, type=%d, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
+                         i, queue[i].uop.pc, queue[i].uop.uop_type, queue[i].uop.prs1, queue[i].uop.prs1_rdy, queue[i].uop.prs2, queue[i].uop.prs2_rdy, queue[i].uop.prd);
             end
         end
     endmethod
