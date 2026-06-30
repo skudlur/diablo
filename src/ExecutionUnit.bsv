@@ -1,6 +1,8 @@
 package ExecutionUnit;
 
 import Vector::*;
+import FIFOF::*;
+import SpecialFIFOs::*;
 import DiabloTypes::*;
 import Near_Mem_IFC::*;
 import MMU_Cache_Common::*;
@@ -43,6 +45,7 @@ interface BranchUnit_IFC;
     method Bool was_taken();
     method bit[63:0] get_pc();
     method Bool is_fence_i();
+    method bit[3:0] get_epoch();
 endinterface
 
 // Address Generation Unit (AGU) Interface
@@ -64,11 +67,9 @@ endinterface
 (* synthesize *)
 module mkALU(ALU_IFC);
 
-    // 1-cycle latency pipeline register
-    Reg#(Bool)      valid <- mkReg(False);
-    Reg#(ExeResult) res <- mkReg(unpack(0));
+    FIFOF#(ExeResult) out_fifo <- mkPipelineFIFOF;
 
-    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (!valid);
+    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (out_fifo.notFull());
         bit[63:0] op2 = (u.imm != 0) ? u.imm : src2_data;
         bit[63:0] out_data = 0;
         
@@ -128,34 +129,32 @@ module mkALU(ALU_IFC);
             $display("ALU: pc=%x src1=%x op2=%x alt=%d funct3=%d res=%x", u.pc, src1_data, op2, alt, funct3, out_data);
         end
         
-        res <= ExeResult {
+        out_fifo.enq(ExeResult {
             mop_id:    u.mop_id,
             prd:       u.prd,
             data:      out_data,
             data_pc:   0,
             excepting: False
-        };
-        valid <= True;
+        });
     endmethod
     
     method ExeResult get_result();
-        return res;
+        return out_fifo.first();
     endmethod
     
     method Action deq_result();
-        valid <= False;
+        out_fifo.deq();
     endmethod
     
     method Bool has_result();
-        return valid;
+        return out_fifo.notEmpty();
     endmethod
 
 endmodule
 
 (* synthesize *)
 module mkBranchUnit(BranchUnit_IFC);
-    Reg#(Bool)      valid <- mkReg(False);
-    Reg#(ExeResult) res <- mkReg(unpack(0));
+    FIFOF#(ExeResult) out_fifo <- mkPipelineFIFOF;
     
     Reg#(Bool)      redirect_valid <- mkReg(False);
     Reg#(bit[63:0]) redirect_target <- mkReg(0);
@@ -163,8 +162,9 @@ module mkBranchUnit(BranchUnit_IFC);
     Reg#(Bool)      out_taken <- mkReg(False);
     Reg#(bit[63:0]) out_pc <- mkReg(0);
     Reg#(Bool)      out_fence_i <- mkReg(False);
+    Reg#(bit[3:0])  saved_epoch <- mkReg(0);
 
-    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (!valid);
+    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (out_fifo.notFull());
         Bool taken = False;
         bit[63:0] target = 0;
         
@@ -206,30 +206,30 @@ module mkBranchUnit(BranchUnit_IFC);
         
         out_taken <= taken;
         out_pc <= u.pc;
+        saved_epoch <= u.epoch;
         out_fence_i <= (u.fu_sel == 8);
         
         $display("BRU: pc=%x src1=%x src2=%x taken=%d target=%x", u.pc, src1_data, src2_data, taken, target);
         
-        res <= ExeResult {
+        out_fifo.enq(ExeResult {
             mop_id:    u.mop_id,
             prd:       u.prd,
             data:      u.pc + 4, // JAL/JALR saves return address (PC+4)
             data_pc:   0,
             excepting: False
-        };
-        valid <= True;
+        });
     endmethod
     
     method ExeResult get_result();
-        return res;
+        return out_fifo.first();
     endmethod
     
     method Action deq_result();
-        valid <= False;
+        out_fifo.deq();
     endmethod
     
     method Bool has_result();
-        return valid;
+        return out_fifo.notEmpty();
     endmethod
     
     method Bool has_redirect();
@@ -252,6 +252,10 @@ module mkBranchUnit(BranchUnit_IFC);
         return out_pc;
     endmethod
     
+    method bit[3:0] get_epoch();
+        return saved_epoch;
+    endmethod
+    
     method Bool is_fence_i();
         return out_fence_i;
     endmethod
@@ -261,8 +265,7 @@ endmodule
 // Address Generation Unit (AGU) & Memory Unit
 // ----------------------------------------------------------------
 module mkAGU#(DMem_IFC dmem) (AGU_IFC);
-    Reg#(Bool) valid <- mkReg(False);
-    Reg#(ExeResult) res <- mkReg(?);
+    FIFOF#(ExeResult) out_fifo <- mkPipelineFIFOF;
     
     Reg#(Bool) waiting_for_mem <- mkReg(False);
     Reg#(Uop)  cur_uop <- mkReg(?);
@@ -278,14 +281,13 @@ module mkAGU#(DMem_IFC dmem) (AGU_IFC);
         
         $display("AGU_RSP: pc=%x data=%x", cur_uop.pc, extracted_data);
         
-        valid <= True;
-        res <= ExeResult {
+        out_fifo.enq(ExeResult {
             mop_id:    cur_uop.mop_id,
             prd:       cur_uop.prd,
             data:      extracted_data,
             data_pc:   cur_uop.pc,
             excepting: dmem.exc()
-        };
+        });
     endrule
 
     Reg#(Bit#(64)) cycle_count <- mkReg(0);
@@ -294,59 +296,61 @@ module mkAGU#(DMem_IFC dmem) (AGU_IFC);
     endrule
 
 
-    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (!valid && !waiting_for_mem);
+    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (out_fifo.notFull() && !waiting_for_mem);
         bit[63:0] addr = src1_data + u.imm;
         saved_addr <= addr;
         cur_uop <= u;
         
-        CacheOp op = u.is_store ? CACHE_ST : CACHE_LD;
+        CacheOp op = CACHE_LD;
+        if (u.is_serialize && u.fu_sel == 34) begin
+            op = CACHE_AMO;
+        end else if (u.is_store) begin
+            op = CACHE_ST;
+        end
         
         if (op == CACHE_ST && addr == 64'hC0000000) begin
             $display("UART: %c", src2_data[7:0]);
-            valid <= True;
-            res <= ExeResult {
+            out_fifo.enq(ExeResult {
                 mop_id:    u.mop_id,
                 prd:       0,
                 data:      0,
                 data_pc:   u.pc,
                 excepting: False
-            };
+            });
         end else if (op == CACHE_LD && addr == 64'hC0000008) begin
             $display("CYCLE READ: %0d at addr %x", cycle_count, addr);
-            valid <= True;
-            res <= ExeResult {
+            out_fifo.enq(ExeResult {
                 mop_id:    u.mop_id,
                 prd:       u.prd,
                 data:      cycle_count,
                 data_pc:   u.pc,
                 excepting: False
-            };
+            });
         end else begin
             $display("AGU: pc=%x op=%x addr=%x src2=%x size=%d", u.pc, op, addr, src2_data, u.mem_size);
-            dmem.req(op, u.mem_size, 0, addr, src2_data, 3 /* M-Mode */, 0, 0, 0);
+            dmem.req(op, u.mem_size, u.amo_func7, addr, src2_data, 3 /* M-Mode */, 0, 0, 0);
             waiting_for_mem <= True;
         end
     endmethod
 
     method Bool has_result();
-        return valid;
+        return out_fifo.notEmpty();
     endmethod
 
     method ExeResult get_result();
-        return res;
+        return out_fifo.first();
     endmethod
 
     method Action deq_result();
-        valid <= False;
+        out_fifo.deq();
     endmethod
 endmodule
 
 (* synthesize *)
 module mkMultUnit(Mult_IFC);
-    Reg#(Bool)      valid <- mkReg(False);
-    Reg#(ExeResult) res <- mkReg(unpack(0));
+    FIFOF#(ExeResult) out_fifo <- mkPipelineFIFOF;
 
-    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (!valid);
+    method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (out_fifo.notFull());
         bit[63:0] result = 0;
         
         Bool is_32 = (u.fu_sel[3] == 1);
@@ -421,26 +425,25 @@ module mkMultUnit(Mult_IFC);
             end
         end
 
-        res <= ExeResult {
+        out_fifo.enq(ExeResult {
             mop_id:    u.mop_id,
             prd:       u.prd,
             data:      result,
             data_pc:   0,
             excepting: False
-        };
-        valid <= True;
+        });
     endmethod
     
     method ExeResult get_result();
-        return res;
+        return out_fifo.first();
     endmethod
     
     method Action deq_result();
-        valid <= False;
+        out_fifo.deq();
     endmethod
     
     method Bool has_result();
-        return valid;
+        return out_fifo.notEmpty();
     endmethod
 endmodule
 

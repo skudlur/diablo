@@ -73,6 +73,8 @@ module mkDiabloCore(DiabloCore_IFC);
 
     Reg#(Bool)             pending_redirect <- mkReg(False);
     Reg#(bit[63:0])        redirect_target  <- mkReg(0);
+    Reg#(bit[3:0])         redirect_epoch   <- mkReg(0);
+    Reg#(Bool)             pending_fence_i  <- mkReg(False);
     Reg#(bit[3:0])         epoch            <- mkReg(0);
 
 
@@ -80,6 +82,10 @@ module mkDiabloCore(DiabloCore_IFC);
     // -----------------------------------------------------------
     // Pipeline Rules
     // -----------------------------------------------------------
+
+    rule update_iq_rob_head;
+        iq.set_rob_head(rob.get_head_id());
+    endrule
 
     // Stage 1: Fetch -> Decode
     rule fetch_to_decode (fetch.notEmpty());
@@ -122,29 +128,28 @@ module mkDiabloCore(DiabloCore_IFC);
 
     rule issue_agu (iq.has_ready_MEM_AGU());
         let uop <- iq.issue_MEM_AGU();
-        let src1 = prf.read1(uop.prs1);
-        let src2 = prf.read2(uop.prs2);
+        let src1 = prf.read3(uop.prs1);
+        let src2 = prf.read4(uop.prs2);
         agu.execute(uop, src1, src2);
         $display("Cycle %0d: Issue AGU PC = %x", cur_cycle, uop.pc);
     endrule
 
     rule issue_mult (iq.has_ready_MULT());
         let uop <- iq.issue_MULT();
-        let src1 = prf.read1(uop.prs1);
-        let src2 = prf.read2(uop.prs2);
+        let src1 = prf.read5(uop.prs1);
+        let src2 = prf.read6(uop.prs2);
         mult.execute(uop, src1, src2);
         $display("Cycle %0d: Issue MULT PC = %x", cur_cycle, uop.pc);
     endrule
 
     rule issue_bru (iq.has_ready_BRANCH());
         let uop <- iq.issue_BRANCH();
-        let src1 = prf.read1(uop.prs1);
-        let src2 = prf.read2(uop.prs2);
+        let src1 = prf.read7(uop.prs1);
+        let src2 = prf.read8(uop.prs2);
         bru.execute(uop, src1, src2);
         $display("Cycle %0d: Issue BRU PC = %x", cur_cycle, uop.pc);
     endrule
 
-    Reg#(Bool) pending_fence_i <- mkReg(False);
     Reg#(Bool) waiting_fence_i <- mkReg(False);
     
     rule handle_fence_i_req (pending_fence_i && !waiting_fence_i);
@@ -162,59 +167,66 @@ module mkDiabloCore(DiabloCore_IFC);
     endrule
 
     // Stage 5: Execute -> Writeback & Wakeup
-    rule execute_writeback (!pending_redirect && !pending_fence_i);
-        if (bru.has_result()) begin
-            let res = bru.get_result();
-            bru.deq_result();
-            if (res.prd != 0) begin
-                prf.write1(res.prd, res.data);
-                iq.wakeup1(res.prd);
-                rename.wakeup1(res.prd);
-            end
-            rob.complete1(res.mop_id, res.excepting);
-            if (bru.has_redirect()) begin
-                pending_redirect <= True;
-                redirect_target <= bru.get_redirect_target();
-                if (bru.is_fence_i()) begin
-                    pending_fence_i <= True;
-                end else begin
-                    fetch.update_btb(bru.get_pc(), bru.get_redirect_target(), bru.was_taken());
-                end
-                bru.clear_redirect();
+    rule execute_writeback_bru (!pending_redirect && !pending_fence_i && bru.has_result());
+        $display("Cycle %0d: execute_writeback_bru ALU prd=%d", cur_cycle, bru.get_result().prd);
+        let res = bru.get_result();
+        bru.deq_result();
+        if (res.prd != 0) begin
+            prf.write1(res.prd, res.data);
+            iq.wakeup1(res.prd);
+            rename.wakeup1(res.prd);
+        end
+        rob.complete1(res.mop_id, res.excepting);
+        if (bru.has_redirect()) begin
+            pending_redirect <= True;
+            redirect_target <= bru.get_redirect_target();
+            redirect_epoch <= bru.get_epoch();
+            if (bru.is_fence_i()) begin
+                pending_fence_i <= True;
+                fetch.pause();
             end else begin
-                rename.resolve_correct_branch();
+                fetch.update_btb(bru.get_pc(), bru.get_redirect_target(), bru.was_taken());
             end
+            bru.clear_redirect();
+        end else begin
+            rename.resolve_correct_branch();
         end
-        if (agu.has_result()) begin
-            let res = agu.get_result();
-            agu.deq_result();
-            if (res.prd != 0) begin
-                prf.write2(res.prd, res.data);
-                iq.wakeup2(res.prd);
-                rename.wakeup2(res.prd);
-            end
-            rob.complete2(res.mop_id, res.excepting);
+    endrule
+
+    rule execute_writeback_agu (!pending_redirect && !pending_fence_i && agu.has_result());
+        $display("Cycle %0d: execute_writeback_agu ALU prd=%d", cur_cycle, agu.get_result().prd);
+        let res = agu.get_result();
+        agu.deq_result();
+        if (res.prd != 0) begin
+            prf.write2(res.prd, res.data);
+            iq.wakeup2(res.prd);
+            rename.wakeup2(res.prd);
         end
-        if (mult.has_result()) begin
-            let res = mult.get_result();
-            mult.deq_result();
-            if (res.prd != 0) begin
-                prf.write3(res.prd, res.data);
-                iq.wakeup3(res.prd);
-                rename.wakeup3(res.prd);
-            end
-            rob.complete3(res.mop_id, res.excepting);
+        rob.complete2(res.mop_id, res.excepting);
+    endrule
+
+    rule execute_writeback_mult (!pending_redirect && !pending_fence_i && mult.has_result());
+        $display("Cycle %0d: execute_writeback_mult ALU prd=%d", cur_cycle, mult.get_result().prd);
+        let res = mult.get_result();
+        mult.deq_result();
+        if (res.prd != 0) begin
+            prf.write3(res.prd, res.data);
+            iq.wakeup3(res.prd);
+            rename.wakeup3(res.prd);
         end
-        if (alu.has_result()) begin
-            let res = alu.get_result();
-            alu.deq_result();
-            if (res.prd != 0) begin
-                prf.write4(res.prd, res.data);
-                iq.wakeup4(res.prd);
-                rename.wakeup4(res.prd);
-            end
-            rob.complete4(res.mop_id, res.excepting);
+        rob.complete3(res.mop_id, res.excepting);
+    endrule
+
+    rule execute_writeback_alu (!pending_redirect && !pending_fence_i && alu.has_result());
+        $display("Cycle %0d: execute_writeback_alu ALU prd=%d", cur_cycle, alu.get_result().prd);
+        let res = alu.get_result();
+        alu.deq_result();
+        if (res.prd != 0) begin
+            prf.write4(res.prd, res.data);
+            iq.wakeup4(res.prd);
+            rename.wakeup4(res.prd);
         end
+        rob.complete4(res.mop_id, res.excepting);
     endrule
 
     // Stage 6: Commit -> Retire
@@ -242,22 +254,28 @@ module mkDiabloCore(DiabloCore_IFC);
         
         if (rob.get_pending_exception()) begin
             // For M0, redirect fetch to exception handler PC 0x80000004
-            fetch.redirect(64'h80000004, next_epoch); 
+            fetch.redirect(64'h80000004, next_epoch);
+            rename.flush(next_epoch);
+            rob.flush();
+            iq.flush();
+            decode.clear();
         end else begin
-            // Branch mispredict redirect
+            // Branch mispredict
             fetch.redirect(redirect_target, next_epoch);
+            rename.flush(redirect_epoch);
+            decode.clear();
         end
-        
-        decode.clear();
-        rename.flush(next_epoch);
         
         pending_redirect <= False;
     endrule
     
-    // Debug rule removed - re-enable when needed
-
-    rule inc_cycle;
+    rule count_cycles;
         cur_cycle <= cur_cycle + 1;
+        $display("Cycle %0d: pending_redirect=%b pending_fence_i=%b", cur_cycle, pending_redirect, pending_fence_i);
+    endrule
+
+    rule debug_stuck (cur_cycle > 30 && cur_cycle < 50);
+        $display("Cycle %0d: DEBUG: iq.has_ready_ALU=%b, alu.valid=%b", cur_cycle, iq.has_ready_ALU(), alu.has_result());
     endrule
 
     // --- Core Interface ---

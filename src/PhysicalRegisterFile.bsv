@@ -10,6 +10,12 @@ interface PRF_IFC;
     method Action write4(PhysReg prd, bit[63:0] data);
     method bit[63:0] read1(PhysReg prs1);
     method bit[63:0] read2(PhysReg prs2);
+    method bit[63:0] read3(PhysReg prs3);
+    method bit[63:0] read4(PhysReg prs4);
+    method bit[63:0] read5(PhysReg prs5);
+    method bit[63:0] read6(PhysReg prs6);
+    method bit[63:0] read7(PhysReg prs7);
+    method bit[63:0] read8(PhysReg prs8);
 endinterface
 
 // 96-entry Physical Register File for M0
@@ -44,12 +50,108 @@ module mkPRF(PRF_IFC);
     
     method bit[63:0] read1(PhysReg prs1);
         if (prs1 == 0 || prs1 >= 96) return 0;
-        else return regs[prs1];
+        else begin
+            // Check for bypass
+            bit[63:0] res = regs[prs1];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs1) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
     endmethod
     
     method bit[63:0] read2(PhysReg prs2);
         if (prs2 == 0 || prs2 >= 96) return 0;
-        else return regs[prs2];
+        else begin
+            // Check for bypass
+            bit[63:0] res = regs[prs2];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs2) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read3(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read4(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read5(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read6(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read7(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
+    endmethod
+
+    method bit[63:0] read8(PhysReg prs);
+        if (prs == 0 || prs >= 96) return 0;
+        else begin
+            bit[63:0] res = regs[prs];
+            for (Integer w = 0; w < 4; w = w + 1) begin
+                if (wr_ports[w] matches tagged Valid .w_val) begin
+                    if (tpl_1(w_val) == prs) res = tpl_2(w_val);
+                end
+            end
+            return res;
+        end
     endmethod
 
 endmodule

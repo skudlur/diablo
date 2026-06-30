@@ -20,6 +20,8 @@ typedef struct {
     Bool      is_store;
     bit[3:0]  epoch;
     Bool      is_last;
+    Bool      is_serialize;
+    bit[6:0]  amo_func7;
 } Decode2Rename deriving (Bits, Eq, FShow);
 
 interface DecodeStage_IFC;
@@ -61,6 +63,8 @@ module mkDecodeStage(DecodeStage_IFC);
         ArchReg src2_arch = {1'b0, di.rs2};
         ArchReg rd_arch   = {1'b0, di.rd};
         FuSelect fusel    = 0;
+        Bool serialize    = False;
+        bit[6:0] a_f7     = 0;
         
         // Basic mapping based on Opcode
         if (di.opcode == op_LUI) begin
@@ -135,7 +139,13 @@ module mkDecodeStage(DecodeStage_IFC);
             imm = signExtend(di.imm12_I);
             src2_arch = 0;
             fusel = 1; // JALR
+        end else if (di.opcode == op_AMO) begin
+            uType = MEM_AGU;
+            serialize = True;
+            a_f7 = di.funct7;
+            fusel = 34; // AMO
         end else if (di.opcode == op_SYSTEM) begin
+            serialize = True;
             // CSR instructions: CSRRW/CSRRS/CSRRC and immediate variants
             // For M0, all CSR reads return 0 (correct for mhartid, misa stub, etc.)
             // Route through ALU with src1=0, src2=0, imm=0 so result is 0
@@ -199,7 +209,9 @@ module mkDecodeStage(DecodeStage_IFC);
             mem_size: f.inst[14:12],
             is_store: (di.opcode == op_STORE),
             epoch: f.epoch,
-            is_last: last
+            is_last: last,
+            is_serialize: serialize,
+            amo_func7: a_f7
         });
     endrule
 

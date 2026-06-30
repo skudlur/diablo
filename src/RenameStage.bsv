@@ -59,6 +59,7 @@ module mkRenameStage(RenameStage_IFC);
     Reg#(PhysReg) init_counter <- mkReg(64); 
     
     Reg#(Bool) stall_on_branch <- mkReg(False);
+    Reg#(UopAge) uop_age_ctr <- mkReg(0);
     
     // Initialize the free list and base rename table
     rule do_initialize (!initialized);
@@ -118,11 +119,16 @@ module mkRenameStage(RenameStage_IFC);
             prs2_rdy: rdy2,
             imm:      d.imm,
             fu_sel:   d.fu_sel,
-            age:      0,       // M0 stub: Assigned at Issue queue entry
+            age:      uop_age_ctr,
             mem_size: d.mem_size,
             is_store: d.is_store,
-            is_last:  d.is_last
+            epoch:    d.epoch,
+            is_last:  d.is_last,
+            is_serialize: d.is_serialize,
+            amo_func7: d.amo_func7
         };
+        
+        uop_age_ctr <= uop_age_ctr + 1;
         
         if (d.uop_type == BRANCH) begin
             stall_on_branch <= True;

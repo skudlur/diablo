@@ -32,7 +32,7 @@ module mkTb (Empty);
         core.start(64'h8000_0000);
         
 `ifdef WATCH_TOHOST
-        core.set_watch_tohost(True, 64'h8000_1000);
+        core.set_watch_tohost(True, 64'h8010_0000);
 `endif
         
         state <= 1;

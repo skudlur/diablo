@@ -21,6 +21,7 @@ interface ReorderBuffer_IFC;
     // can update the architectural state if is_last is true.
     method ActionValue#(Tuple2#(Maybe#(RobSlot), Maybe#(RobSlot))) commit();
     method Bool is_head_completed();
+    method MopId get_head_id();
     
     // Exception / Flush
     method Bool get_pending_exception();
@@ -136,6 +137,10 @@ module mkReorderBuffer(ReorderBuffer_IFC);
     
     method Bool is_head_completed();
         return (count > 0) ? rob[head].completed : False;
+    endmethod
+    
+    method MopId get_head_id();
+        return pack(head);
     endmethod
     
     method Bool get_pending_exception();

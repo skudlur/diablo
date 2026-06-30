@@ -59,7 +59,10 @@ typedef struct {
     UopAge      age;         // Logical age for age-ordered issue
     bit[2:0]    mem_size;
     Bool        is_store;
+    bit[3:0]    epoch;
     Bool        is_last;     // Marks the last uop of a MOP (triggers commit)
+    Bool        is_serialize; // Requires non-speculative execution (ROB head)
+    bit[6:0]    amo_func7;   // funct7 for AMO instructions
 } Uop deriving (Bits, Eq, FShow);
 
 // ----------------------------------------------------------------
