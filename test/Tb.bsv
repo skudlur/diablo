@@ -40,9 +40,8 @@ module mkTb (Empty);
 
     rule count_cycles (state == 1);
         cycle <= cycle + 1;
-        if (cycle % 100 == 0) $display("Cycle %0d", cycle);
-        if (cycle > 50000) begin
-            $display("TIMEOUT: DiabloCore ran for 50000 cycles.");
+        if (cycle > 20000000) begin
+            $display("TIMEOUT: DiabloCore ran for 20000000 cycles.");
             $finish;
         end
     endrule
@@ -52,9 +51,9 @@ module mkTb (Empty);
         let tv = core.mv_tohost_value();
         if (tv != 0) begin
             if ((tv >> 1) == 0) begin
-                $display("SUCCESS: Test passed!");
+                $display("SUCCESS: Test passed at cycle %0d", cycle);
             end else begin
-                $display("FAIL: Test failed with code %0d", tv >> 1);
+                $display("FAIL: Test failed with code %0d at cycle %0d", tv >> 1, cycle);
             end
             $finish;
         end

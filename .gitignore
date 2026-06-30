@@ -2,3 +2,6 @@
 *.swp
 .surfer/
 sim/obj_dir
+toolchain/
+sim/out_Tb_verilator
+sim/trace.vcd

@@ -288,6 +288,12 @@ module mkAGU#(DMem_IFC dmem) (AGU_IFC);
         };
     endrule
 
+    Reg#(Bit#(64)) cycle_count <- mkReg(0);
+    rule count_cycles;
+        cycle_count <= cycle_count + 1;
+    endrule
+
+
     method Action execute(Uop u, bit[63:0] src1_data, bit[63:0] src2_data) if (!valid && !waiting_for_mem);
         bit[63:0] addr = src1_data + u.imm;
         saved_addr <= addr;
@@ -295,11 +301,31 @@ module mkAGU#(DMem_IFC dmem) (AGU_IFC);
         
         CacheOp op = u.is_store ? CACHE_ST : CACHE_LD;
         
-        $display("AGU: pc=%x op=%x addr=%x src2=%x size=%d", u.pc, op, addr, src2_data, u.mem_size);
-        
-        dmem.req(op, u.mem_size, 0, addr, src2_data, 3 /* M-Mode */, 0, 0, 0);
-        
-        waiting_for_mem <= True;
+        if (op == CACHE_ST && addr == 64'hC0000000) begin
+            $display("UART: %c", src2_data[7:0]);
+            valid <= True;
+            res <= ExeResult {
+                mop_id:    u.mop_id,
+                prd:       0,
+                data:      0,
+                data_pc:   u.pc,
+                excepting: False
+            };
+        end else if (op == CACHE_LD && addr == 64'hC0000008) begin
+            $display("CYCLE READ: %0d at addr %x", cycle_count, addr);
+            valid <= True;
+            res <= ExeResult {
+                mop_id:    u.mop_id,
+                prd:       u.prd,
+                data:      cycle_count,
+                data_pc:   u.pc,
+                excepting: False
+            };
+        end else begin
+            $display("AGU: pc=%x op=%x addr=%x src2=%x size=%d", u.pc, op, addr, src2_data, u.mem_size);
+            dmem.req(op, u.mem_size, 0, addr, src2_data, 3 /* M-Mode */, 0, 0, 0);
+            waiting_for_mem <= True;
+        end
     endmethod
 
     method Bool has_result();

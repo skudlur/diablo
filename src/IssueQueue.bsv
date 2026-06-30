@@ -207,8 +207,8 @@ module mkIssueQueue(IssueQueue_IFC);
     method Action dump();
         for (Integer i = 0; i < 8; i = i + 1) begin
             if (queue[i].valid) begin
-                $display("  IQ[%0d]: pc=%x, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
-                         i, queue[i].uop.pc, queue[i].uop.prs1, queue[i].uop.prs1_rdy, queue[i].uop.prs2, queue[i].uop.prs2_rdy, queue[i].uop.prd);
+                //$display("  IQ[%0d]: pc=%x, prs1=%0d (rdy=%b), prs2=%0d (rdy=%b), prd=%0d", 
+                //         i, queue[i].uop.pc, queue[i].uop.prs1, queue[i].uop.prs1_rdy, queue[i].uop.prs2, queue[i].uop.prs2_rdy, queue[i].uop.prd);
             end
         end
     endmethod

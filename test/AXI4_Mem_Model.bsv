@@ -113,7 +113,7 @@ module mkAXI4_Mem_Model (AXI4_Dual_Mem_Model_IFC #(wd_id, wd_addr, wd_data, wd_u
       end
       else
 	 rg_rd_beat_i <= rg_rd_beat_i + 1;
-      $display("cycle %0d: rl_read_i addr=%0h data=%0h", cur_cycle, rd_addr.araddr, rd_data);
+      //$display("cycle %0d: rl_read_i addr=%0h data=%0h", cur_cycle, rd_addr.araddr, rd_data);
    endrule
 
    // ================================================================
@@ -147,7 +147,7 @@ module mkAXI4_Mem_Model (AXI4_Dual_Mem_Model_IFC #(wd_id, wd_addr, wd_data, wd_u
       end
       else
 	 rg_rd_beat_d <= rg_rd_beat_d + 1;
-      $display("cycle %0d: rl_read_d addr=%0h data=%0h", cur_cycle, rd_addr.araddr, rd_data);
+      //$display("cycle %0d: rl_read_d addr=%0h data=%0h", cur_cycle, rd_addr.araddr, rd_data);
    endrule
 
    // ================================================================
@@ -166,7 +166,9 @@ module mkAXI4_Mem_Model (AXI4_Dual_Mem_Model_IFC #(wd_id, wd_addr, wd_data, wd_u
       let addr_ok = fn_addr_ok (rg_addr_map_base, rg_addr_map_lim, wr_addr.awaddr, wr_addr.awsize);
 
       Bit#(64) new_data = 0;
-      if (addr_ok) begin
+      if (wr_addr.awaddr == 64'hC000_0000) begin
+          $write("%c", wr_data.wdata[7:0]);
+      end else if (addr_ok) begin
          let old_data = rf.sub (rf_index);
          Bit #(64) mask = 0;
          for (Integer i = 0; i < 8; i = i + 1) begin
@@ -177,7 +179,7 @@ module mkAXI4_Mem_Model (AXI4_Dual_Mem_Model_IFC #(wd_id, wd_addr, wd_data, wd_u
          new_data = (old_data & (~mask)) | (wr_data.wdata & mask);
 	 rf.upd (rf_index, new_data);
       end
-      $display("cycle %0d: rl_write_d addr=%0h wdata=%0h wstrb=%0h new_data=%0h", cur_cycle, wr_addr.awaddr, wr_data.wdata, wr_data.wstrb, new_data);
+      //$display("cycle %0d: rl_write_d addr=%0h wdata=%0h wstrb=%0h new_data=%0h", cur_cycle, wr_addr.awaddr, wr_data.wdata, wr_data.wstrb, new_data);
 
       if (last) begin
 	 AXI4_Wr_Resp #(wd_id, wd_user) wr_resp = ?;
@@ -196,24 +198,25 @@ module mkAXI4_Mem_Model (AXI4_Dual_Mem_Model_IFC #(wd_id, wd_addr, wd_data, wd_u
    // INTERFACE
 
    method Action init (Bit #(wd_addr) addr_map_base, Bit #(wd_addr) addr_map_lim);
-      if (addr_map_base [2:0] != 3'b0)
-	 $display ("%0d: %m.init: ERROR: unaligned addr_map_base 0x%0h", cur_cycle, addr_map_base);
-      else if ((addr_map_lim - addr_map_base) > fromInteger (mem_size_word64 * 8))
-	 $display ("%0d: %m.init: ERROR: mem size (base 0x%0h, lim 0x%0h) > max (0x%0h)",
-		   cur_cycle,
-		   addr_map_base,
-		   addr_map_lim,
-		   fromInteger (mem_size_word64 * 8));
+      if (addr_map_base [2:0] != 3'b0) begin
+	 //$display ("%0d: %m.init: ERROR: unaligned addr_map_base 0x%0h", cur_cycle, addr_map_base);
+      end else if ((addr_map_lim - addr_map_base) > fromInteger (mem_size_word64 * 8)) begin
+	 //$display ("%0d: %m.init: ERROR: mem size (base 0x%0h, lim 0x%0h) > max (0x%0h)",
+		   //cur_cycle,
+		   //addr_map_base,
+		   //addr_map_lim,
+		   //fromInteger (mem_size_word64 * 8));
+      end
       else begin
 	 xactor_i.reset;
 	 xactor_d.reset;
 	 rg_addr_map_base <= addr_map_base;
 	 rg_addr_map_lim  <= addr_map_lim;
 	 rg_initialized   <= True;
-	 $display ("%0d: %m.init: addr_map_base 0x%0h, addr_map_lim 0x%0h",
-		   cur_cycle,
-		   addr_map_base,
-		   addr_map_lim);
+	 //$display ("%0d: %m.init: addr_map_base 0x%0h, addr_map_lim 0x%0h",
+	 //	   cur_cycle,
+	 //	   addr_map_base,
+	 //	   addr_map_lim);
       end
    endmethod
    interface slave_imem = xactor_i.axi_side;

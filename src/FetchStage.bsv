@@ -50,6 +50,9 @@ module mkFetchStage#(IMem_IFC imem) (FetchStage_IFC);
     Vector#(16, Reg#(bit[63:0])) btb_target <- replicateM(mkReg(0));
     Vector#(16, Reg#(Bool))      btb_valid <- replicateM(mkReg(False));
 
+    Reg#(Bit#(64)) cycles <- mkReg(0);
+    rule count; cycles <= cycles + 1; endrule
+
     // Rule 1: Send request to I_MMU_Cache
     rule do_fetch_req (active && fBuffer.notFull() && !waiting_for_imem);
         // Predict next PC
@@ -59,7 +62,7 @@ module mkFetchStage#(IMem_IFC imem) (FetchStage_IFC);
             next_pc = btb_target[idx];
         end
         
-        $display("FetchStage: Requesting PC = %x", pc_reg);
+        //$display("FetchStage: Requesting PC = %x", pc_reg);
         imem.req(3'b010, pc_reg, 3 /* M-Mode */, 0, 0, 0);
         
         spec_pred_pc <= next_pc;
@@ -71,7 +74,7 @@ module mkFetchStage#(IMem_IFC imem) (FetchStage_IFC);
     // Rule 2: Receive response from I_MMU_Cache
     rule do_fetch_rsp (waiting_for_imem && imem.valid());
         if (!imem.exc()) begin
-            // $display("FetchStage: Response PC = %x, Inst = %x", imem.pc(), imem.instr());
+            // //$display("FetchStage: Response PC = %x, Inst = %x", imem.pc(), imem.instr());
             if (fetch_epoch == epoch_reg) begin
                 fBuffer.enq(Fetch2Decode {
                     pc: imem.pc(),
@@ -81,7 +84,7 @@ module mkFetchStage#(IMem_IFC imem) (FetchStage_IFC);
                 });
             end
         end else begin
-            $display("FetchStage: Exception at PC = %x", imem.pc());
+            //$display("FetchStage: Exception at PC = %x", imem.pc());
             // Instruction page fault / access fault handling
             // For now, we drop it or enq a NOP.
         end

@@ -124,7 +124,7 @@ module mkRenameStage(RenameStage_IFC);
         end
 
         
-        // $display("RenameStage: Renamed PC = %x", d.pc);
+        // //$display("RenameStage: Renamed PC = %x", d.pc);
         outQ.enq(out_uop);
     endrule
     
@@ -137,7 +137,7 @@ module mkRenameStage(RenameStage_IFC);
     endrule
 
     rule debug_status (initialized);
-        // $display("RenameStage Status: init=%b, inQ_notEmpty=%b, freeList_notEmpty=%b, outQ_notFull=%b, outQ_notEmpty=%b", 
+        // //$display("RenameStage Status: init=%b, inQ_notEmpty=%b, freeList_notEmpty=%b, outQ_notFull=%b, outQ_notEmpty=%b", 
         //          initialized, inQ.notEmpty(), freeList.notEmpty(), outQ.notFull(), outQ.notEmpty());
     endrule
     

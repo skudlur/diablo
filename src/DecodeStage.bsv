@@ -52,7 +52,7 @@ module mkDecodeStage(DecodeStage_IFC);
         
         let di = fv_decode(f.inst);
         
-        $display("DecodeStage: PC = %x, Inst = %x", f.pc, f.inst);
+        //$display("DecodeStage: PC = %x, Inst = %x", f.pc, f.inst);
         
         // Base assignments
         UopType uType = ALU;

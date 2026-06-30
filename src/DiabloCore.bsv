@@ -109,7 +109,7 @@ module mkDiabloCore(DiabloCore_IFC);
         
         // Dispatch to Issue Queue
         iq.dispatch(u);
-        $display("Cycle %0d: Rename/Dispatch PC = %x, mop_id = %x, prd = %d", cur_cycle, u.pc, u.mop_id, u.prd);
+        //$display("Cycle %0d: Rename/Dispatch PC = %x, mop_id = %x, prd = %d", cur_cycle, u.pc, u.mop_id, u.prd);
     endrule
 
     // Stage 4: Issue -> Execute
@@ -118,7 +118,7 @@ module mkDiabloCore(DiabloCore_IFC);
         let src1 = prf.read1(uop.prs1);
         let src2 = prf.read2(uop.prs2);
         alu.execute(uop, src1, src2);
-        $display("Cycle %0d: Issue ALU PC = %x", cur_cycle, uop.pc);
+        //$display("Cycle %0d: Issue ALU PC = %x", cur_cycle, uop.pc);
     endrule
 
     rule issue_agu (iq.has_ready_MEM_AGU());
@@ -126,7 +126,7 @@ module mkDiabloCore(DiabloCore_IFC);
         let src1 = prf.read1(uop.prs1);
         let src2 = prf.read2(uop.prs2);
         agu.execute(uop, src1, src2);
-        $display("Cycle %0d: Issue AGU PC = %x", cur_cycle, uop.pc);
+        //$display("Cycle %0d: Issue AGU PC = %x", cur_cycle, uop.pc);
     endrule
 
     rule issue_mult (iq.has_ready_MULT());
@@ -134,7 +134,7 @@ module mkDiabloCore(DiabloCore_IFC);
         let src1 = prf.read1(uop.prs1);
         let src2 = prf.read2(uop.prs2);
         mult.execute(uop, src1, src2);
-        $display("Cycle %0d: Issue MULT PC = %x", cur_cycle, uop.pc);
+        //$display("Cycle %0d: Issue MULT PC = %x", cur_cycle, uop.pc);
     endrule
 
     rule issue_bru (iq.has_ready_BRANCH());
@@ -142,7 +142,7 @@ module mkDiabloCore(DiabloCore_IFC);
         let src1 = prf.read1(uop.prs1);
         let src2 = prf.read2(uop.prs2);
         bru.execute(uop, src1, src2);
-        $display("Cycle %0d: Issue BRU PC = %x", cur_cycle, uop.pc);
+        //$display("Cycle %0d: Issue BRU PC = %x", cur_cycle, uop.pc);
     endrule
 
     Reg#(Bool) pending_fence_i <- mkReg(False);
@@ -151,7 +151,7 @@ module mkDiabloCore(DiabloCore_IFC);
     rule handle_fence_i_req (pending_fence_i && !waiting_fence_i);
         near_mem.server_fence_i.request.put(?);
         waiting_fence_i <= True;
-        $display("Cycle %0d: DiabloCore: sent server_fence_i.request", cur_cycle);
+        //$display("Cycle %0d: DiabloCore: sent server_fence_i.request", cur_cycle);
     endrule
 
     rule handle_fence_i_rsp (waiting_fence_i);
@@ -159,7 +159,7 @@ module mkDiabloCore(DiabloCore_IFC);
         pending_fence_i <= False;
         waiting_fence_i <= False;
         fetch.cache_flushed();
-        $display("Cycle %0d: DiabloCore: received server_fence_i.response", cur_cycle);
+        //$display("Cycle %0d: DiabloCore: received server_fence_i.response", cur_cycle);
     endrule
 
     // Stage 5: Execute -> Writeback & Wakeup
@@ -173,7 +173,7 @@ module mkDiabloCore(DiabloCore_IFC);
                 rename.wakeup(res.prd);
             end
             rob.complete(res.mop_id, res.excepting);
-            // $display("Cycle %0d: Execute BRU Writeback, mop_id = %x", cur_cycle, res.mop_id);
+            // //$display("Cycle %0d: Execute BRU Writeback, mop_id = %x", cur_cycle, res.mop_id);
             if (bru.has_redirect()) begin
                 pending_redirect <= True;
                 redirect_target <= bru.get_redirect_target();
@@ -195,7 +195,7 @@ module mkDiabloCore(DiabloCore_IFC);
                 rename.wakeup(res.prd);
             end
             rob.complete(res.mop_id, res.excepting);
-            // $display("Cycle %0d: Execute AGU Writeback, mop_id = %x", cur_cycle, res.mop_id);
+            // //$display("Cycle %0d: Execute AGU Writeback, mop_id = %x", cur_cycle, res.mop_id);
         end else if (mult.has_result()) begin
             let res = mult.get_result();
             mult.deq_result();
@@ -205,7 +205,7 @@ module mkDiabloCore(DiabloCore_IFC);
                 rename.wakeup(res.prd);
             end
             rob.complete(res.mop_id, res.excepting);
-            // $display("Cycle %0d: Execute MULT Writeback, mop_id = %x", cur_cycle, res.mop_id);
+            // //$display("Cycle %0d: Execute MULT Writeback, mop_id = %x", cur_cycle, res.mop_id);
         end else if (alu.has_result()) begin
             let res = alu.get_result();
             alu.deq_result();
@@ -215,7 +215,7 @@ module mkDiabloCore(DiabloCore_IFC);
                 rename.wakeup(res.prd);
             end
             rob.complete(res.mop_id, res.excepting);
-            // $display("Cycle %0d: Execute ALU Writeback, mop_id = %x", cur_cycle, res.mop_id);
+            // //$display("Cycle %0d: Execute ALU Writeback, mop_id = %x", cur_cycle, res.mop_id);
         end
     endrule
 
@@ -227,7 +227,7 @@ module mkDiabloCore(DiabloCore_IFC);
         
         if (isValid(ret1)) begin
             let slot = fromMaybe(?, ret1);
-            // $display("Cycle %0d: Commit Retire, mop_id = %x", cur_cycle, slot);
+            // //$display("Cycle %0d: Commit Retire, mop_id = %x", cur_cycle, slot);
             rename.commitRegister(slot.old_prd);
         end
         // Note: ret2 register freeing deferred - single commit port for now
@@ -252,8 +252,6 @@ module mkDiabloCore(DiabloCore_IFC);
         
         decode.clear();
         rename.flush(next_epoch);
-        iq.flush();
-        rob.flush();
         
         pending_redirect <= False;
     endrule
